@@ -1,0 +1,25 @@
+[package]
+name = "powerctld"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "powerctld"
+path = "src/main.rs"
+
+[dependencies]
+powerctl-common = { path = "../powerctl-common" }
+serde.workspace = true
+serde_json = "1"
+toml.workspace = true
+zbus.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+futures-util.workspace = true
+sd-notify = "0.4"
+
+[dev-dependencies]
+tempfile.workspace = true
