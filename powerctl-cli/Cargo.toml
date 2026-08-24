@@ -1,0 +1,16 @@
+[package]
+name = "powerctl-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "powerctl"
+path = "src/main.rs"
+
+[dependencies]
+powerctl-common = { path = "../powerctl-common" }
+serde_json = "1"
+zbus.workspace = true
+tokio.workspace = true
+clap.workspace = true
