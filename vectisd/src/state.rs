@@ -1,5 +1,5 @@
-use powerctl_common::error::Result;
-use powerctl_common::types::{GpuDriverPref, GpuMode, Profile};
+use vectis_common::error::Result;
+use vectis_common::types::{GpuDriverPref, GpuMode, Profile};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -36,7 +36,7 @@ impl StateStore {
             std::fs::create_dir_all(parent)?;
         }
         let text = serde_json::to_string_pretty(state)
-            .map_err(|e| powerctl_common::error::Error::Other(format!("state serialize error: {e}")))?;
+            .map_err(|e| vectis_common::error::Error::Other(format!("state serialize error: {e}")))?;
         std::fs::write(&self.path, text)?;
         Ok(())
     }

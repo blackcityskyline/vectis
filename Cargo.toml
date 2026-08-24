@@ -1,9 +1,9 @@
 [workspace]
 resolver = "2"
 members = [
-    "powerctl-common",
-    "powerctld",
-    "powerctl-cli",
+    "vectis-common",
+    "vectisd",
+    "vectis-cli",
 ]
 
 [workspace.package]

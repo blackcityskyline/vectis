@@ -801,46 +801,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "powerctl-cli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "powerctl-common",
- "serde_json",
- "tokio",
- "zbus",
-]
-
-[[package]]
-name = "powerctl-common"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror",
- "toml",
- "zbus",
-]
-
-[[package]]
-name = "powerctld"
-version = "0.1.0"
-dependencies = [
- "futures-util",
- "powerctl-common",
- "sd-notify",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "tokio",
- "toml",
- "tracing",
- "tracing-subscriber",
- "zbus",
-]
-
-[[package]]
 name = "ppv-lite86"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1378,6 +1338,46 @@ name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
+
+[[package]]
+name = "vectis-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "serde_json",
+ "tokio",
+ "vectis-common",
+ "zbus",
+]
+
+[[package]]
+name = "vectis-common"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+ "toml",
+ "zbus",
+]
+
+[[package]]
+name = "vectisd"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "sd-notify",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "vectis-common",
+ "zbus",
+]
 
 [[package]]
 name = "version_check"

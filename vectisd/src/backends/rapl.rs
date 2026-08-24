@@ -1,5 +1,5 @@
-use powerctl_common::error::{Error, Result};
-use powerctl_common::types::TdpLimit;
+use vectis_common::error::{Error, Result};
+use vectis_common::types::TdpLimit;
 use std::fs;
 use std::path::{Path, PathBuf};
 

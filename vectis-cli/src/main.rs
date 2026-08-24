@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
-use powerctl_common::dbus_api::{DaemonProxy, OBJECT_PATH};
-use powerctl_common::types::DaemonStatus;
+use vectis_common::dbus_api::{DaemonProxy, OBJECT_PATH};
+use vectis_common::types::DaemonStatus;
 use zbus::Connection;
 
 #[derive(Parser)]

@@ -3,8 +3,8 @@ use crate::backends::rapl::RaplManager;
 use crate::backends::tlp::{SystemCommandRunner, TlpRunner};
 use crate::state::StateStore;
 use crate::{conflicts, dm, proc_kill, session};
-use powerctl_common::config::{Config, PowerBackendKind};
-use powerctl_common::types::{DaemonStatus, GpuDriverPref, GpuMode, Profile, TdpLimit};
+use vectis_common::config::{Config, PowerBackendKind};
+use vectis_common::types::{DaemonStatus, GpuDriverPref, GpuMode, Profile, TdpLimit};
 use std::str::FromStr;
 use std::sync::RwLock;
 use tokio::sync::Mutex as AsyncMutex;
@@ -80,8 +80,8 @@ impl DaemonService {
         }
     }
 
-    async fn apply_profile_inner(&self, profile_name: &str) -> powerctl_common::Result<()> {
-        let profile = Profile::from_str(profile_name).map_err(powerctl_common::Error::Other)?;
+    async fn apply_profile_inner(&self, profile_name: &str) -> vectis_common::Result<()> {
+        let profile = Profile::from_str(profile_name).map_err(vectis_common::Error::Other)?;
 
         match self.resolve_power_backend().await {
             PowerBackendKind::Tlp | PowerBackendKind::Auto => {
@@ -98,14 +98,14 @@ impl DaemonService {
         Ok(())
     }
 
-    async fn apply_tdp_inner(&self, limit: TdpLimit) -> powerctl_common::Result<()> {
-        let rapl = self.rapl_manager().ok_or(powerctl_common::Error::NoBackend("RAPL powercap"))?;
+    async fn apply_tdp_inner(&self, limit: TdpLimit) -> vectis_common::Result<()> {
+        let rapl = self.rapl_manager().ok_or(vectis_common::Error::NoBackend("RAPL powercap"))?;
         rapl.apply(&limit)
     }
 
     /// Immediate GPU switch: stop DM → kill holders → switch → restart DM.
     /// Holds gpu_lock for entire operation to prevent background revert.
-    async fn apply_gpu_force(&self, mode: GpuMode, driver: GpuDriverPref) -> powerctl_common::Result<()> {
+    async fn apply_gpu_force(&self, mode: GpuMode, driver: GpuDriverPref) -> vectis_common::Result<()> {
         let _guard = self.gpu_lock.lock().await;
 
         let active_dm = dm::detect(&self.connection).await;

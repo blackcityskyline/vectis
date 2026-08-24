@@ -1,5 +1,5 @@
 [package]
-name = "powerctl-common"
+name = "vectis-common"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

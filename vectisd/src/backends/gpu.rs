@@ -1,5 +1,5 @@
-use powerctl_common::error::{Error, Result};
-use powerctl_common::types::{GpuDriverPref, GpuMode, GpuPowerBackend, GpuVendor};
+use vectis_common::error::{Error, Result};
+use vectis_common::types::{GpuDriverPref, GpuMode, GpuPowerBackend, GpuVendor};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;

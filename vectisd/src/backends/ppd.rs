@@ -1,5 +1,5 @@
-use powerctl_common::error::{Error, Result};
-use powerctl_common::types::Profile;
+use vectis_common::error::{Error, Result};
+use vectis_common::types::Profile;
 use zbus::Connection;
 
 const BUS_NAME: &str = "net.hadess.PowerProfiles";

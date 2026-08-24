@@ -9,8 +9,8 @@ mod session;
 mod session_watch;
 mod state;
 
-use powerctl_common::config::{Config, DEFAULT_CONFIG_PATH};
-use powerctl_common::dbus_api::{BUS_NAME, OBJECT_PATH};
+use vectis_common::config::{Config, DEFAULT_CONFIG_PATH};
+use vectis_common::dbus_api::{BUS_NAME, OBJECT_PATH};
 use service::{DaemonService, DaemonServiceIface};
 use state::{StateStore, DEFAULT_STATE_DIR};
 use std::path::Path;
