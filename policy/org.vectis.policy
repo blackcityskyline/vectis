@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>vectis</vendor>
+
+  <!--
+    allow_active=yes means: the currently-active session on the seat can
+    call this without a password prompt. This is what solves the
+    original problem (Vicinae/launcher extensions run as a plain
+    unprivileged Node process in your session with no way to type a
+    sudo password) - it's not "anyone can do this", it's specifically
+    "your own logged-in graphical session, right now, on this seat".
+
+    If you want to restrict this further (e.g. only members of a
+    specific group), add a .rules file under
+    /etc/polkit-1/rules.d/ instead of editing this policy - .rules files
+    can inspect subject.isInGroup(...) etc, which plain .policy XML
+    can't express.
+  -->
+
+  <action id="org.vectis.apply-profile">
+    <description>Apply a power profile (delegates to TLP or power-profiles-daemon)</description>
+    <message>Authentication is required to change the power profile</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+
+  <action id="org.vectis.set-tdp">
+    <description>Set a hard RAPL TDP power limit</description>
+    <message>Authentication is required to change the TDP limit</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+
+  <action id="org.vectis.set-gpu-mode">
+    <description>Switch GPU mode (integrated / hybrid nvidia / hybrid nouveau)</description>
+    <message>Authentication is required to switch GPU mode</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+
+  <action id="org.vectis.read-status">
+    <description>Read power/GPU status</description>
+    <message>Authentication is required to read power status</message>
+    <defaults>
+      <allow_any>yes</allow_any>
+      <allow_inactive>yes</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

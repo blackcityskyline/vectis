@@ -1,0 +1,52 @@
+[Unit]
+Description=vectis power/GPU management daemon
+# Documentation=https://github.com/.../vectis
+# Ordered before the display manager so GPU-state reconciliation at
+# startup (apply any pending switch, or re-assert the last known mode)
+# completes before any session can start. Combined with Type=notify
+# below, systemd won't start display-manager.service until we've
+# signaled readiness - this replaces the separate boot-hook unit the
+# earlier bash prototype needed.
+Before=display-manager.service
+After=systemd-udev-settle.service dbus.service polkit.service
+Wants=systemd-udev-settle.service
+# Restored this dependency after finding it was the actual regression:
+# removing it (see git history / prior comment here) let our one-shot
+# startup GPU reconciliation run *before* udev coldplug had finished,
+# so anything that loaded nvidia afterward had nothing left watching to
+# catch it. The boot-hang risk this dependency reintroduces (udevadm
+# settle can itself block indefinitely on a broken system, hit for real
+# once during development) is now covered differently: TimeoutStartSec
+# below forces this unit to a terminal (failed) state after 60s even if
+# the thing we're ordered After= never completes, and a failed
+# "Before=" unit still unblocks display-manager.service (ordering only
+# waits for job completion, not success). Continuous GPU-state
+# enforcement in the daemon itself (every poll tick / session-end
+# signal, not just at startup - see service.rs enforce_last_gpu_mode)
+# is the other half of the real fix: even if something still manages to
+# load nvidia after we start, it gets caught and corrected within the
+# next cycle instead of never.
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/vectisd
+Restart=on-failure
+RestartSec=2
+
+# Belt-and-suspenders on top of the daemon's own internal 30s timeout
+# around startup GPU reconciliation (see main.rs): if that somehow also
+# gets stuck, systemd will mark this unit failed after 60s instead of
+# waiting forever. A failed "Before=" unit still unblocks the units
+# ordered after it (Before=/After= only waits for the job to *complete*,
+# not to succeed) - so display-manager.service starts either way rather
+# than hanging the whole graphical login. Hit for real during
+# development after some /dev corruption made a subprocess call block
+# indefinitely with no timeout protection at all.
+TimeoutStartSec=60
+
+# The daemon needs root for sysfs/modprobe/RAPL writes and to talk to
+# systemd1/logind/PolicyKit1 on the system bus as itself.
+User=root
+
+[Install]
+WantedBy=multi-user.target
