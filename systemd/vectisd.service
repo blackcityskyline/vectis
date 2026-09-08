@@ -29,7 +29,7 @@ Wants=systemd-udev-settle.service
 
 [Service]
 Type=notify
-ExecStart=/usr/local/bin/powerctld
+ExecStart=/usr/local/bin/vectisd
 Restart=on-failure
 RestartSec=2
 

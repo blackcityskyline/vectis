@@ -195,16 +195,13 @@ impl DaemonService {
             return;
         }
 
-        // Kill nvidia holders BEFORE checking device liveness — the nvidia driver
-        // itself holds devices after logout (not userspace processes). Killing first
-        // gives the driver a chance to release.
-        tracing::warn!("enforce_last_gpu_mode: live={live:?}, expected {expected} — re-asserting");
-        proc_kill::kill_nvidia_holders_only();
-
         if proc_kill::nvidia_device_in_use() {
-            tracing::debug!("enforce_last_gpu_mode: live={live:?} expected={expected}, but /dev/nvidia* still in use after kill");
+            tracing::debug!("enforce_last_gpu_mode: live={live:?} expected={expected}, but /dev/nvidia* is in use - not correcting yet");
             return;
         }
+
+        tracing::warn!("enforce_last_gpu_mode: live mode drifted to {live:?}, expected {expected} - re-asserting");
+        proc_kill::kill_nvidia_holders_only();
         match gpu.switch_to(expected, state.last_gpu_driver) {
             Ok(()) => {
                 tracing::info!("enforce_last_gpu_mode: re-asserted {expected} successfully");
