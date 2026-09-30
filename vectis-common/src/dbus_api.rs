@@ -14,6 +14,8 @@ pub trait Daemon {
     fn set_tdp(&self, pl1_watts: u32, pl2_watts: u32, tau_us: u32, hard_lock: bool) -> zbus::Result<()>;
     fn clear_tdp(&self) -> zbus::Result<()>;
     fn set_gpu_mode(&self, mode: &str, driver: &str, force: bool) -> zbus::Result<()>;
+    /// Drops a queued GPU switch. Returns whether one was queued.
+    fn clear_gpu_pending(&self) -> zbus::Result<bool>;
     fn list_gpu_devices(&self) -> zbus::Result<String>;
     fn get_conflicts(&self) -> zbus::Result<Vec<String>>;
 }

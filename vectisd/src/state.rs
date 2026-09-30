@@ -15,6 +15,21 @@ pub struct State {
     pub last_auto_apply_error: Option<String>,
 }
 
+impl State {
+    /// Drops a queued GPU switch. Returns whether one was queued.
+    ///
+    /// `last_gpu_mode` is deliberately left alone: the background path falls
+    /// through to `enforce_last_gpu_mode` once nothing is pending, so the
+    /// current mode keeps being re-asserted instead of going ungoverned.
+    pub fn clear_gpu_pending(&mut self) -> bool {
+        let was_queued = self.pending_gpu_mode.take().is_some();
+        // The driver preference has no meaning without a pending mode, so a
+        // stale one would be inherited by whatever switch is queued next.
+        self.pending_gpu_driver = GpuDriverPref::Auto;
+        was_queued
+    }
+}
+
 pub struct StateStore {
     path: PathBuf,
 }
@@ -46,6 +61,41 @@ impl StateStore {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn clearing_a_pending_switch_reports_that_there_was_one() {
+        let mut state = State::default();
+        state.pending_gpu_mode = Some(GpuMode::Discrete);
+        state.pending_gpu_driver = GpuDriverPref::OpenSource;
+
+        assert!(state.clear_gpu_pending(), "a queued switch existed");
+        assert!(state.pending_gpu_mode.is_none());
+        // The driver preference only exists to be applied with the pending mode,
+        // so leaving it behind would let a later switch inherit it silently.
+        assert_eq!(state.pending_gpu_driver, GpuDriverPref::Auto);
+    }
+
+    #[test]
+    fn clearing_nothing_is_not_an_error() {
+        let mut state = State::default();
+        assert!(!state.clear_gpu_pending(), "nothing was queued");
+        // last_gpu_mode must survive: the daemon enforces it instead, and losing
+        // it would drop the laptop back to no enforced mode at all.
+        state.last_gpu_mode = Some(GpuMode::Integrated);
+        assert!(!state.clear_gpu_pending());
+        assert_eq!(state.last_gpu_mode, Some(GpuMode::Integrated));
+    }
+
+    #[test]
+    fn clearing_does_not_touch_the_enforced_mode() {
+        let mut state = State::default();
+        state.last_gpu_mode = Some(GpuMode::Hybrid);
+        state.pending_gpu_mode = Some(GpuMode::Discrete);
+
+        state.clear_gpu_pending();
+
+        assert_eq!(state.last_gpu_mode, Some(GpuMode::Hybrid));
+    }
 
     #[test]
     fn missing_file_gives_default_state() {

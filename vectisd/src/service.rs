@@ -320,6 +320,15 @@ impl DaemonService {
         }
     }
 
+    /// Drop a queued switch, so the pending GPU mode is not applied on the next
+    /// logout. The enforced mode is untouched and keeps being re-asserted.
+    pub async fn clear_gpu_pending(&self) -> zbus::fdo::Result<bool> {
+        let mut state = self.state.load();
+        let was_queued = state.clear_gpu_pending();
+        self.state.save(&state).map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
+        Ok(was_queued)
+    }
+
     pub async fn list_gpu_devices(&self) -> zbus::fdo::Result<String> {
         let gpu = self.gpu_manager();
         let devices = gpu.list_devices();
@@ -386,6 +395,16 @@ impl DaemonServiceIface {
     ) -> zbus::fdo::Result<()> {
         self.authorize(&hdr, "org.vectis.set-gpu-mode").await?;
         self.0.set_gpu_mode(mode, driver, force).await
+    }
+
+    /// Cancelling a switch is the same capability as making one, so it reuses
+    /// the same PolicyKit action rather than adding a second one to allow.
+    async fn clear_gpu_pending(
+        &self,
+        #[zbus(header)] hdr: zbus::MessageHeader<'_>,
+    ) -> zbus::fdo::Result<bool> {
+        self.authorize(&hdr, "org.vectis.set-gpu-mode").await?;
+        self.0.clear_gpu_pending().await
     }
 
     async fn list_gpu_devices(&self) -> zbus::fdo::Result<String> {

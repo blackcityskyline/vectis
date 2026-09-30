@@ -45,6 +45,9 @@ enum Command {
         force: bool,
     },
 
+    /// Cancel a queued GPU switch, so it is not applied on the next logout
+    GpuCancel,
+
     /// Full status: profile, tdp, gpu, conflicts
     Status {
         /// Print raw JSON instead of human-readable summary
@@ -103,6 +106,13 @@ async fn main() {
                 }
             })
         }
+        Command::GpuCancel => p.clear_gpu_pending().await.map(|was_queued| {
+            if was_queued {
+                println!("queued GPU switch cancelled");
+            } else {
+                println!("no GPU switch was queued");
+            }
+        }),
         Command::Status { json } => match p.get_status().await {
             Ok(status_json) => {
                 if json {
