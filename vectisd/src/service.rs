@@ -57,6 +57,12 @@ impl DaemonService {
         })
     }
 
+    /// Blocking work (subprocess waits, modprobe, poll loops) runs off the
+    /// async executor - a 12s GPU poll loop must not stall other D-Bus commands.
+    async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+        tokio::task::spawn_blocking(f).await.expect("blocking task panicked")
+    }
+
     /// Auto probes tlp → ppd → asusd. Defaults to Tlp if neither found.
     async fn resolve_power_backend(&self) -> PowerBackendKind {
         let configured = self.config.read().unwrap().power_backend;
@@ -98,7 +104,9 @@ impl DaemonService {
 
         match self.resolve_power_backend().await {
             PowerBackendKind::Tlp | PowerBackendKind::Auto => {
-                TlpRunner::new(SystemCommandRunner).apply_profile(profile)?;
+                let result =
+                    Self::blocking(move || TlpRunner::new(SystemCommandRunner).apply_profile(profile)).await;
+                result?;
             }
             PowerBackendKind::Ppd => {
                 crate::backends::ppd::set_profile(&self.connection, profile).await?;
@@ -125,10 +133,12 @@ impl DaemonService {
         if let Some(unit) = &active_dm {
             let _ = dm::stop(&self.connection, unit).await;
         }
-        proc_kill::kill_gpu_holders();
-
         let gpu = self.gpu_manager();
-        let result = Self::switch_gpu(&gpu, mode, driver);
+        let result = Self::blocking(move || {
+            proc_kill::kill_gpu_holders();
+            Self::switch_gpu(&gpu, mode, driver)
+        })
+        .await;
 
         if let Some(unit) = &active_dm {
             let _ = dm::start(&self.connection, unit).await;
@@ -166,18 +176,24 @@ impl DaemonService {
 
         let _ = session::no_active_user_sessions(&self.connection).await;
 
-        if proc_kill::nvidia_device_in_use() {
+        tracing::info!("apply_pending_gpu_switch_if_ready: applying pending switch to {target}");
+        let gpu = self.gpu_manager();
+        let outcome = Self::blocking(move || {
+            if proc_kill::nvidia_device_in_use() {
+                return None;
+            }
+            proc_kill::kill_nvidia_holders_only();
+            Some(Self::switch_gpu(&gpu, target, driver))
+        })
+        .await;
+        let Some(result) = outcome else {
             tracing::debug!(
                 "apply_pending_gpu_switch_if_ready: pending={target}, but /dev/nvidia* held - not applying yet ({})",
                 crate::proc_kill::gpu_holders_report()
             );
             return;
-        }
-
-        tracing::info!("apply_pending_gpu_switch_if_ready: applying pending switch to {target}");
-        proc_kill::kill_nvidia_holders_only();
-        let gpu = self.gpu_manager();
-        match Self::switch_gpu(&gpu, target, driver) {
+        };
+        match result {
             Ok(()) => {
                 tracing::info!("apply_pending_gpu_switch_if_ready: switch to {target} succeeded");
                 let mut s = self.state.load();
@@ -211,17 +227,24 @@ impl DaemonService {
             return;
         }
 
-        if proc_kill::nvidia_device_in_use() {
+        tracing::warn!("enforce_last_gpu_mode: live mode drifted to {live:?}, expected {expected} - re-asserting");
+        let driver = state.last_gpu_driver;
+        let outcome = Self::blocking(move || {
+            if proc_kill::nvidia_device_in_use() {
+                return None;
+            }
+            proc_kill::kill_nvidia_holders_only();
+            Some(Self::switch_gpu(&gpu, expected, driver))
+        })
+        .await;
+        let Some(result) = outcome else {
             tracing::debug!(
-                "enforce_last_gpu_mode: live={live:?} expected={expected}, but /dev/nvidia* held by another task - not correcting yet ({})",
+                "enforce_last_gpu_mode: live={live:?} expected={expected}, but /dev/nvidia* held - not correcting yet ({})",
                 crate::proc_kill::gpu_holders_report()
             );
             return;
-        }
-
-        tracing::warn!("enforce_last_gpu_mode: live mode drifted to {live:?}, expected {expected} - re-asserting");
-        proc_kill::kill_nvidia_holders_only();
-        match Self::switch_gpu(&gpu, expected, state.last_gpu_driver) {
+        };
+        match result {
             Ok(()) => {
                 tracing::info!("enforce_last_gpu_mode: re-asserted {expected} successfully");
                 let mut s = self.state.load();
