@@ -69,10 +69,12 @@ fn loaded_gpu_modules() -> Vec<String> {
         .collect()
 }
 
-/// Who keeps the GPU busy right now: userspace holders of /dev/nvidia* + /dev/dri/*
-/// and loaded card-binding kernel modules. Empty = nothing found.
+/// Who keeps the GPU busy right now: userspace holders of /dev/nvidia* and
+/// loaded card-binding kernel modules. Empty = nothing found.
+// ponytail: /dev/nvidia* only - dGPU renderD* nodes would need a sysfs walk to
+// distinguish from iGPU; add if Prime-Vulkan-only holders ever matter.
 pub fn gpu_holders_report() -> String {
-    let output = run_shell_capture("fuser -v /dev/nvidia* /dev/dri/* 2>&1", KILL_TIMEOUT)
+    let output = run_shell_capture("fuser -v /dev/nvidia* 2>&1", KILL_TIMEOUT)
         .ok()
         .flatten()
         .unwrap_or_default();
