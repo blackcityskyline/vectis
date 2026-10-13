@@ -44,6 +44,19 @@ impl DaemonService {
         RaplManager::detect("/").ok()
     }
 
+    /// switch_to annotated with whatever holds the GPU at failure time
+    /// (device-node holders + loaded modules), so errors are actionable.
+    fn switch_gpu(gpu: &SysGpuManager, mode: GpuMode, driver: GpuDriverPref) -> vectis_common::Result<()> {
+        gpu.switch_to(mode, driver).map_err(|e| {
+            let report = crate::proc_kill::gpu_holders_report();
+            if report.is_empty() {
+                e
+            } else {
+                vectis_common::Error::Other(format!("{e} [gpu busy: {report}]"))
+            }
+        })
+    }
+
     /// Auto probes tlp → ppd → asusd. Defaults to Tlp if neither found.
     async fn resolve_power_backend(&self) -> PowerBackendKind {
         let configured = self.config.read().unwrap().power_backend;
@@ -115,7 +128,7 @@ impl DaemonService {
         proc_kill::kill_gpu_holders();
 
         let gpu = self.gpu_manager();
-        let result = gpu.switch_to(mode, driver);
+        let result = Self::switch_gpu(&gpu, mode, driver);
 
         if let Some(unit) = &active_dm {
             let _ = dm::start(&self.connection, unit).await;
@@ -154,14 +167,17 @@ impl DaemonService {
         let _ = session::no_active_user_sessions(&self.connection).await;
 
         if proc_kill::nvidia_device_in_use() {
-            tracing::debug!("apply_pending_gpu_switch_if_ready: pending={target}, but /dev/nvidia* held — not applying yet");
+            tracing::debug!(
+                "apply_pending_gpu_switch_if_ready: pending={target}, but /dev/nvidia* held - not applying yet ({})",
+                crate::proc_kill::gpu_holders_report()
+            );
             return;
         }
 
         tracing::info!("apply_pending_gpu_switch_if_ready: applying pending switch to {target}");
         proc_kill::kill_nvidia_holders_only();
         let gpu = self.gpu_manager();
-        match gpu.switch_to(target, driver) {
+        match Self::switch_gpu(&gpu, target, driver) {
             Ok(()) => {
                 tracing::info!("apply_pending_gpu_switch_if_ready: switch to {target} succeeded");
                 let mut s = self.state.load();
@@ -196,13 +212,16 @@ impl DaemonService {
         }
 
         if proc_kill::nvidia_device_in_use() {
-            tracing::debug!("enforce_last_gpu_mode: live={live:?} expected={expected}, but /dev/nvidia* is in use - not correcting yet");
+            tracing::debug!(
+                "enforce_last_gpu_mode: live={live:?} expected={expected}, but /dev/nvidia* held by another task - not correcting yet ({})",
+                crate::proc_kill::gpu_holders_report()
+            );
             return;
         }
 
         tracing::warn!("enforce_last_gpu_mode: live mode drifted to {live:?}, expected {expected} - re-asserting");
         proc_kill::kill_nvidia_holders_only();
-        match gpu.switch_to(expected, state.last_gpu_driver) {
+        match Self::switch_gpu(&gpu, expected, state.last_gpu_driver) {
             Ok(()) => {
                 tracing::info!("enforce_last_gpu_mode: re-asserted {expected} successfully");
                 let mut s = self.state.load();
