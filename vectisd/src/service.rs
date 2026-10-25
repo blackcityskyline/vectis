@@ -46,7 +46,11 @@ impl DaemonService {
 
     /// switch_to annotated with whatever holds the GPU at failure time
     /// (device-node holders + loaded modules), so errors are actionable.
-    fn switch_gpu(gpu: &SysGpuManager, mode: GpuMode, driver: GpuDriverPref) -> vectis_common::Result<()> {
+    fn switch_gpu(
+        gpu: &SysGpuManager,
+        mode: GpuMode,
+        driver: GpuDriverPref,
+    ) -> vectis_common::Result<GpuMode> {
         gpu.switch_to(mode, driver).map_err(|e| {
             let report = crate::proc_kill::gpu_holders_report();
             if report.is_empty() {
@@ -144,9 +148,9 @@ impl DaemonService {
             let _ = dm::start(&self.connection, unit).await;
         }
 
-        result?;
+        let effective = result?;
         let mut state = self.state.load();
-        state.last_gpu_mode = Some(mode);
+        state.last_gpu_mode = Some(effective);
         state.last_gpu_driver = driver;
         state.pending_gpu_mode = None;
         state.last_auto_apply_error = None;
@@ -194,10 +198,10 @@ impl DaemonService {
             return;
         };
         match result {
-            Ok(()) => {
+            Ok(effective) => {
                 tracing::info!("apply_pending_gpu_switch_if_ready: switch to {target} succeeded");
                 let mut s = self.state.load();
-                s.last_gpu_mode = Some(target);
+                s.last_gpu_mode = Some(effective);
                 s.last_gpu_driver = driver;
                 s.pending_gpu_mode = None;
                 s.last_auto_apply_error = None;
@@ -222,6 +226,7 @@ impl DaemonService {
 
         let gpu = self.gpu_manager();
         let live = gpu.detect_mode();
+        let expected = gpu.effective_mode(expected);
         if live == Some(expected) {
             tracing::trace!("enforce_last_gpu_mode: live ({live:?}) matches expected ({expected})");
             return;
@@ -245,9 +250,10 @@ impl DaemonService {
             return;
         };
         match result {
-            Ok(()) => {
+            Ok(effective) => {
                 tracing::info!("enforce_last_gpu_mode: re-asserted {expected} successfully");
                 let mut s = self.state.load();
+                s.last_gpu_mode = Some(effective);
                 s.last_auto_apply_error = None;
                 let _ = self.state.save(&s);
             }

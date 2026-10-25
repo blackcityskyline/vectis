@@ -254,7 +254,20 @@ impl<M: ModuleLoader, B: BbswitchIo> GpuManager<M, B> {
         }
     }
 
-    pub fn switch_to(&self, mode: GpuMode, driver_pref: GpuDriverPref) -> Result<()> {
+    /// Mode the hardware can actually reach. Muxless laptops (iGPU present)
+    /// can't take the display off the iGPU, so Discrete is structurally Hybrid.
+    /// Callers must persist this, not the requested mode, or drift-correction
+    /// compares against an unreachable target and re-asserts forever.
+    pub fn effective_mode(&self, mode: GpuMode) -> GpuMode {
+        if mode == GpuMode::Discrete && self.has_integrated_gpu() {
+            GpuMode::Hybrid
+        } else {
+            mode
+        }
+    }
+
+    /// Returns the mode that was actually applied (see `effective_mode`).
+    pub fn switch_to(&self, mode: GpuMode, driver_pref: GpuDriverPref) -> Result<GpuMode> {
         let addr = self.discrete_pci_address().ok_or(Error::NoBackend("no discrete GPU detected on this system"))?;
 
         if (mode == GpuMode::Integrated || mode == GpuMode::Hybrid) && !self.has_integrated_gpu() {
@@ -263,17 +276,23 @@ impl<M: ModuleLoader, B: BbswitchIo> GpuManager<M, B> {
             )));
         }
 
-        if mode == GpuMode::Discrete && self.has_integrated_gpu() {
+        let effective = self.effective_mode(mode);
+        if effective != mode {
             tracing::info!(
                 "gpu: 'discrete' requested but muxless hardware can't stop iGPU driving display - degrades to hybrid"
             );
         }
 
         match self.detect_vendor() {
-            Some(GpuVendor::Nvidia) => self.switch_nvidia(mode, driver_pref, &addr),
-            Some(GpuVendor::Amd) => self.switch_amd(mode, &addr),
-            None => Err(Error::NoBackend("could not determine discrete GPU vendor (not nvidia 0x10de or AMD 0x1002)")),
+            Some(GpuVendor::Nvidia) => self.switch_nvidia(effective, driver_pref, &addr)?,
+            Some(GpuVendor::Amd) => self.switch_amd(effective, &addr)?,
+            None => {
+                return Err(Error::NoBackend(
+                    "could not determine discrete GPU vendor (not nvidia 0x10de or AMD 0x1002)",
+                ))
+            }
         }
+        Ok(effective)
     }
 
     fn wait_for_suspend(&self, addr: &str) -> bool {
@@ -805,7 +824,8 @@ mod tests {
         let modules = FakeModules::new(&[]);
         let mgr = mgr_with(&tmp, GpuPowerBackend::Auto, modules, FakeBbswitch::absent());
 
-        mgr.switch_to(GpuMode::Discrete, GpuDriverPref::Auto).unwrap();
+        let applied = mgr.switch_to(GpuMode::Discrete, GpuDriverPref::Auto).unwrap();
+        assert_eq!(applied, GpuMode::Hybrid, "muxless discrete must report hybrid, otherwise drift-correction loops");
         assert!(mgr.modules.is_loaded("nvidia"));
     }
 
