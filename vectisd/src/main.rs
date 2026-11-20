@@ -2,6 +2,7 @@ mod backends;
 mod conflicts;
 mod dm;
 mod polkit;
+mod ppd_compat;
 mod proc_kill;
 mod procutil;
 mod service;
@@ -42,6 +43,10 @@ async fn main() {
     };
 
     let service = Arc::new(DaemonService::new(config, state_store, connection.clone()));
+
+    // Claim power-profiles-daemon's names early: desktop shells probe for them
+    // at login and may not retry. No-op when a real PPD/tuned-ppd owns them.
+    ppd_compat::register(service.clone(), &connection).await;
 
     // Startup reconciliation runs BEFORE display-manager.service can start.
     // Hard timeout prevents blocking the entire graphical login if something hangs.

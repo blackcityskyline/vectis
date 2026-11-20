@@ -2,14 +2,6 @@ use vectis_common::error::{Error, Result};
 use vectis_common::types::Profile;
 use std::time::Duration;
 
-fn profile_to_tlp_subcommand(profile: Profile) -> &'static str {
-    match profile {
-        Profile::Powersave => "power-saver",
-        Profile::Balanced => "balanced",
-        Profile::Performance => "performance",
-    }
-}
-
 pub trait CommandRunner {
     fn run(&self, program: &str, args: &[&str]) -> Result<()>;
 }
@@ -45,7 +37,7 @@ impl<R: CommandRunner> TlpRunner<R> {
     }
 
     pub fn apply_profile(&self, profile: Profile) -> Result<()> {
-        self.runner.run("tlp", &[profile_to_tlp_subcommand(profile)])
+        self.runner.run("tlp", &[profile.ppd_name()])
     }
 }
 

@@ -6,6 +6,7 @@ use crate::{conflicts, dm, proc_kill, session};
 use vectis_common::config::{Config, PowerBackendKind};
 use vectis_common::types::{DaemonStatus, GpuDriverPref, GpuMode, Profile, TdpLimit};
 use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::RwLock;
 use tokio::sync::Mutex as AsyncMutex;
 use zbus::dbus_interface;
@@ -19,13 +20,41 @@ pub struct DaemonService {
     /// foreground force-switch (SessionRemoved signal fires mid-force, background
     /// sees transient GPU state and "self-heals" back to old mode).
     gpu_lock: AsyncMutex<()>,
+    /// True once vectis has claimed power-profiles-daemon's bus names. While
+    /// set, the Ppd backend must not be used: the name we would call is our
+    /// own (infinite recursion), and by definition no real PPD is running.
+    ppd_compat_active: AtomicBool,
 }
 
 type SysGpuManager = GpuManager<SystemModprobe, SystemBbswitch>;
 
 impl DaemonService {
     pub fn new(config: Config, state: StateStore, connection: Connection) -> Self {
-        Self { config: RwLock::new(config), state, connection, gpu_lock: AsyncMutex::new(()) }
+        Self {
+            config: RwLock::new(config),
+            state,
+            connection,
+            gpu_lock: AsyncMutex::new(()),
+            ppd_compat_active: AtomicBool::new(false),
+        }
+    }
+
+    pub fn ppd_compat_enabled(&self) -> bool {
+        self.config.read().unwrap().ppd_compat.enabled
+    }
+
+    pub fn ppd_compat_active(&self) -> bool {
+        self.ppd_compat_active.load(Ordering::Relaxed)
+    }
+
+    pub fn mark_ppd_compat_active(&self) {
+        self.ppd_compat_active.store(true, Ordering::Relaxed);
+    }
+
+    /// Last profile vectis applied. Only meaningful while PPD compat owns the
+    /// profile API: if a real PPD were serving it, compat would be inactive.
+    pub fn last_profile(&self) -> Option<Profile> {
+        self.state.load().last_profile
     }
 
     fn gpu_manager(&self) -> SysGpuManager {
@@ -69,6 +98,12 @@ impl DaemonService {
 
     /// Auto probes tlp → ppd → asusd. Defaults to Tlp if neither found.
     async fn resolve_power_backend(&self) -> PowerBackendKind {
+        // Claiming PPD's name means PPD is not running. Talking to the Ppd
+        // backend would call ourselves forever, so force TLP instead.
+        if self.ppd_compat_active() {
+            return PowerBackendKind::Tlp;
+        }
+
         let configured = self.config.read().unwrap().power_backend;
         match configured {
             PowerBackendKind::Auto => {
@@ -120,6 +155,10 @@ impl DaemonService {
         let mut state = self.state.load();
         state.last_profile = Some(profile);
         self.state.save(&state)?;
+
+        if self.ppd_compat_active() {
+            crate::ppd_compat::emit_profile_changed(&self.connection, profile).await;
+        }
         Ok(())
     }
 
@@ -286,12 +325,17 @@ impl DaemonService {
         let state = self.state.load();
         let resolved_backend = self.resolve_power_backend().await;
 
-        let active_profile = match resolved_backend {
-            PowerBackendKind::Ppd => {
-                crate::backends::ppd::get_active_profile(&self.connection).await.or(state.last_profile)
-            }
-            _ => state.last_profile,
+        // The profile can be changed behind our back: a desktop shell talking to
+        // PPD/tuned-ppd/tlp-pd writes them directly, so our cached
+        // `last_profile` goes stale. Any PPD-compatible daemon is the live
+        // source; the cache is only the fallback. Skipped while we are the
+        // daemon in question (compat active) - that would just read our cache.
+        let live_profile = if self.ppd_compat_active() {
+            None
+        } else {
+            crate::backends::ppd::get_active_profile(&self.connection).await
         };
+        let active_profile = live_profile.or(state.last_profile);
 
         DaemonStatus {
             active_profile,
@@ -465,18 +509,7 @@ impl DaemonServiceIface {
 
 impl DaemonServiceIface {
     async fn authorize(&self, hdr: &zbus::MessageHeader<'_>, action_id: &str) -> zbus::fdo::Result<()> {
-        let sender = hdr
-            .sender()
-            .ok()
-            .flatten()
-            .map(|s| s.to_string())
-            .ok_or_else(|| zbus::fdo::Error::AccessDenied("no caller identity on message".into()))?;
-
-        if crate::polkit::check_authorization(self.0.connection(), &sender, action_id).await {
-            Ok(())
-        } else {
-            Err(zbus::fdo::Error::AccessDenied(format!("not authorized for {action_id}")))
-        }
+        crate::polkit::authorize(self.0.connection(), hdr, action_id).await
     }
 }
 

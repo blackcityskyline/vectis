@@ -26,6 +26,14 @@ for svc in vectisd powerctld; do
 done
 
 # ── Remove files ──────────────────────────────────────────
+# The powerprofilesctl shim is ours only if it carries the marker; never
+# delete a shim/binary installed by another package.
+shim="$BIN_DIR/powerprofilesctl"
+if [ -f "$shim" ] && grep -q "vectis-ppd-shim" "$shim" 2>/dev/null; then
+    info "Removing $shim"
+    rm -f "$shim"
+fi
+
 for f in \
     "$BIN_DIR/vectisd" \
     "$BIN_DIR/vectis" \

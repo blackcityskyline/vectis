@@ -24,10 +24,35 @@ impl std::str::FromStr for Profile {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "powersave" => Ok(Profile::Powersave),
+            // `power-saver` is the name every shell and PPD client uses; accept
+            // it here too so the CLI and the D-Bus API take the same spelling.
+            "powersave" | "power-saver" => Ok(Profile::Powersave),
             "balanced" => Ok(Profile::Balanced),
             "performance" => Ok(Profile::Performance),
-            other => Err(format!("unknown profile '{other}' (expected powersave|balanced|performance)")),
+            other => Err(format!(
+                "unknown profile '{other}' (expected powersave|power-saver|balanced|performance)"
+            )),
+        }
+    }
+}
+
+impl Profile {
+    /// Wire name used by power-profiles-daemon's D-Bus API. TLP happens to
+    /// accept the same names as subcommands, so both backends share this.
+    pub fn ppd_name(self) -> &'static str {
+        match self {
+            Profile::Powersave => "power-saver",
+            Profile::Balanced => "balanced",
+            Profile::Performance => "performance",
+        }
+    }
+
+    pub fn from_ppd_name(s: &str) -> Option<Self> {
+        match s {
+            "power-saver" => Some(Profile::Powersave),
+            "balanced" => Some(Profile::Balanced),
+            "performance" => Some(Profile::Performance),
+            _ => None,
         }
     }
 }
@@ -136,4 +161,19 @@ pub struct DaemonStatus {
     pub gpu_pending: Option<GpuMode>,
     pub gpu_last_auto_apply_error: Option<String>,
     pub conflicting_services: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn profile_parses_both_vectis_and_ppd_spellings() {
+        assert_eq!(Profile::from_str("powersave"), Ok(Profile::Powersave));
+        assert_eq!(Profile::from_str("power-saver"), Ok(Profile::Powersave));
+        assert_eq!(Profile::from_str("balanced"), Ok(Profile::Balanced));
+        assert_eq!(Profile::from_str("performance"), Ok(Profile::Performance));
+        assert!(Profile::from_str("bogus").is_err());
+    }
 }

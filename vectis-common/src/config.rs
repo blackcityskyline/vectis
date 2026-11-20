@@ -14,6 +14,8 @@ pub struct Config {
     pub gpu: GpuConfig,
     #[serde(default)]
     pub conflicts: ConflictConfig,
+    #[serde(default)]
+    pub ppd_compat: PpdCompatConfig,
 }
 
 /// Auto probes tlp → ppd → asusd
@@ -68,6 +70,25 @@ fn default_conflicting_services() -> Vec<String> {
     ]
 }
 
+/// Serves power-profiles-daemon's D-Bus API when no real PPD/tuned-ppd owns
+/// the name, so desktop shells (Quickshell/Dux, GNOME, KDE, waybar modules)
+/// can drive vectis without knowing about TLP.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PpdCompatConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+impl Default for PpdCompatConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
 impl Config {
     pub fn load(path: &Path) -> Result<Self, crate::error::Error> {
         if !path.exists() {
@@ -102,5 +123,16 @@ mod tests {
         let cfg = Config::default();
         assert!(!cfg.conflicts.watch_services.contains(&"tlp.service".to_string()));
         assert!(!cfg.conflicts.watch_services.contains(&"power-profiles-daemon.service".to_string()));
+    }
+
+    #[test]
+    fn ppd_compat_defaults_on_and_can_be_disabled() {
+        assert!(Config::default().ppd_compat.enabled);
+
+        let cfg: Config = toml::from_str("[ppd_compat]\nenabled = false\n").expect("parse");
+        assert!(!cfg.ppd_compat.enabled);
+
+        let cfg: Config = toml::from_str("[tdp]\nenabled = false\n").expect("parse");
+        assert!(cfg.ppd_compat.enabled, "omitted section keeps the auto-on default");
     }
 }

@@ -3,6 +3,14 @@ use zbus::dbus_proxy;
 pub const BUS_NAME: &str = "org.vectis.Daemon1";
 pub const OBJECT_PATH: &str = "/org/vectis/Daemon";
 
+/// power-profiles-daemon's current identity (since 0.20, project moved under
+/// UPower). Shells and Quickshell-based desktops use this one exclusively.
+pub const PPD_MODERN_BUS_NAME: &str = "org.freedesktop.UPower.PowerProfiles";
+pub const PPD_MODERN_PATH: &str = "/org/freedesktop/UPower/PowerProfiles";
+/// Pre-0.20 identity, still advertised by PPD/tuned-ppd for older clients.
+pub const PPD_LEGACY_BUS_NAME: &str = "net.hadess.PowerProfiles";
+pub const PPD_LEGACY_PATH: &str = "/net/hadess/PowerProfiles";
+
 #[dbus_proxy(
     interface = "org.vectis.Daemon1",
     default_service = "org.vectis.Daemon1",

@@ -1,0 +1,93 @@
+#!/bin/sh
+# vectis-ppd-shim: minimal powerprofilesctl replacement backed by vectisd.
+# Installed only where power-profiles-daemon is absent; if a real PPD is
+# running, vectisd delegates to it and these commands still land correctly.
+set -eu
+
+vectis="${VECTIS:-vectis}"
+
+to_ppd() {
+    case "$1" in
+        powersave) echo power-saver ;;
+        balanced|performance) echo "$1" ;;
+        *) echo "${1:-balanced}" ;;
+    esac
+}
+
+from_ppd() {
+    case "$1" in
+        power-saver) echo powersave ;;
+        *) echo "$1" ;;
+    esac
+}
+
+current() {
+    out=$("$vectis" status --json 2>/dev/null) || return 1
+    printf '%s\n' "$out" | sed -n 's/.*"active_profile":"\([^"]*\)".*/\1/p' | head -n1
+}
+
+usage() {
+    cat <<'EOF'
+Usage: powerprofilesctl COMMAND
+
+Commands:
+  get                       Print the active profile
+  set PROFILE               Switch profile (power-saver|balanced|performance)
+  list                      List profiles
+  launch [--profile P] CMD  Run CMD under profile P, restoring afterwards
+  version                   Print version
+
+Provided by vectis, not power-profiles-daemon.
+EOF
+}
+
+case "${1:-}" in
+    get)
+        raw=$(current) || { echo "powerprofilesctl: vectisd is not running" >&2; exit 1; }
+        to_ppd "$raw"
+        ;;
+    set)
+        [ $# -eq 2 ] || { usage >&2; exit 2; }
+        "$vectis" profile "$(from_ppd "$2")" >/dev/null
+        ;;
+    list)
+        raw=$(current) || { echo "powerprofilesctl: vectisd is not running" >&2; exit 1; }
+        active=$(to_ppd "$raw")
+        [ -n "$active" ] || active=balanced
+        for p in power-saver balanced performance; do
+            if [ "$p" = "$active" ]; then
+                printf '* %s:\n' "$p"
+            else
+                printf '  %s:\n' "$p"
+            fi
+            printf '\tDriver: vectis\n\n'
+        done
+        ;;
+    launch)
+        shift
+        profile=performance
+        if [ "${1:-}" = "--profile" ] || [ "${1:-}" = "-p" ]; then
+            profile=$2
+            shift 2
+        fi
+        [ $# -ge 1 ] || { usage >&2; exit 2; }
+        [ "${1:-}" = "--" ] && shift
+        previous=$(current) || { echo "powerprofilesctl: vectisd is not running" >&2; exit 1; }
+        [ -n "$previous" ] || previous=balanced
+        "$vectis" profile "$(from_ppd "$profile")" >/dev/null
+        status=0
+        "$@" || status=$?
+        "$vectis" profile "$previous" >/dev/null || true
+        exit "$status"
+        ;;
+    version|--version)
+        echo "vectis-ppd-shim"
+        ;;
+    help|-h|--help|"")
+        usage
+        ;;
+    *)
+        echo "powerprofilesctl: unsupported command '$1' (vectis shim)" >&2
+        exit 2
+        ;;
+esac

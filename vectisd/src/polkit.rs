@@ -1,5 +1,25 @@
 use zbus::Connection;
 
+/// Extracts the caller from a message header and checks `action_id` via polkit.
+pub async fn authorize(
+    connection: &Connection,
+    hdr: &zbus::MessageHeader<'_>,
+    action_id: &str,
+) -> zbus::fdo::Result<()> {
+    let sender = hdr
+        .sender()
+        .ok()
+        .flatten()
+        .map(|s| s.to_string())
+        .ok_or_else(|| zbus::fdo::Error::AccessDenied("no caller identity on message".into()))?;
+
+    if check_authorization(connection, &sender, action_id).await {
+        Ok(())
+    } else {
+        Err(zbus::fdo::Error::AccessDenied(format!("not authorized for {action_id}")))
+    }
+}
+
 /// Checks sender authorization for action_id via polkit.
 /// Fails closed: errors = not authorized.
 pub async fn check_authorization(connection: &Connection, sender: &str, action_id: &str) -> bool {

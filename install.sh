@@ -9,6 +9,7 @@ SYSTEMD_DIR="/etc/systemd/system"
 
 info()  { printf '\033[1;34m::\033[0m %s\n' "$*"; }
 ok()    { printf '\033[1;32m::\033[0m %s\n' "$*"; }
+warn()  { printf '\033[1;33m::\033[0m %s\n' "$*"; }
 error() { printf '\033[1;31m::\033[0m %s\n' "$*" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || error "Run as root (sudo)."
@@ -20,6 +21,16 @@ for bin in vectisd vectis; do
     info "Installing $bin → $BIN_DIR/$bin"
     install -Dm755 "$src" "$BIN_DIR/$bin"
 done
+
+# PPD-compatible CLI shim. Overwrites only our own previously installed copy
+# (marker in the script), never a real powerprofilesctl from another package.
+shim="$BIN_DIR/powerprofilesctl"
+if [ -e "$shim" ] && ! grep -q "vectis-ppd-shim" "$shim" 2>/dev/null; then
+    warn "Not touching existing $shim (not installed by vectis)"
+else
+    info "Installing powerprofilesctl shim → $shim"
+    install -Dm755 "$REPO_ROOT/scripts/powerprofilesctl" "$shim"
+fi
 
 # ── D-Bus policy ──────────────────────────────────────────
 info "Installing D-Bus policy → $DBUS_DIR/org.vectis.Daemon1.conf"
