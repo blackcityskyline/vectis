@@ -4,8 +4,9 @@
 //! running, vectisd claims PPD's D-Bus identity (both the current
 //! `org.freedesktop.UPower.PowerProfiles` and the pre-0.20 legacy
 //! `net.hadess.PowerProfiles`) and routes `ActiveProfile` through the normal
-//! profile backend. A real PPD always wins: if the name is taken, nothing is
-//! registered and the existing PPD-delegating backend keeps working.
+//! profile backend. A real PPD always wins: if one is running, or is merely
+//! enabled and due to start later in boot, nothing is registered and the
+//! existing PPD-delegating backend keeps working.
 
 use crate::service::DaemonService;
 use std::collections::HashMap;
@@ -21,6 +22,66 @@ use zbus::Connection;
 pub struct PpdModern(pub Arc<DaemonService>);
 pub struct PpdLegacy(pub Arc<DaemonService>);
 
+/// Known PPD API implementations. If one of these is installed in a state
+/// that means it will serve the bus, vectis must not race it at boot.
+const PPD_UNITS: [&str; 3] = [
+    "power-profiles-daemon.service",
+    "tuned-ppd.service",
+    "tlp-pd.service",
+];
+
+/// Whether a unit in this state is a contender for the bus: it is serving now,
+/// or it is enabled and will start. A disabled, masked or failed unit is not:
+/// then nobody else serves the API and vectis takes over.
+fn is_contender(file_state: &str, active_state: &str) -> bool {
+    let served_now = matches!(active_state, "active" | "activating" | "reloading");
+    let will_start = matches!(file_state, "enabled" | "enabled-runtime") && active_state != "failed";
+    served_now || will_start
+}
+
+/// Another PPD implementation that will serve the bus, if any. Checks units
+/// rather than the bus name only, because at boot vectisd (multi-user) starts
+/// before tlp-pd (graphical) and would otherwise win the name by pure timing.
+async fn contender(connection: &Connection) -> Option<&'static str> {
+    let manager = zbus::Proxy::new(
+        connection,
+        "org.freedesktop.systemd1",
+        "/org/freedesktop/systemd1",
+        "org.freedesktop.systemd1.Manager",
+    )
+    .await
+    .ok()?;
+
+    for unit in PPD_UNITS {
+        // GetUnitFileState fails for units that are not installed at all.
+        let Ok(file_state) = manager.call::<_, _, String>("GetUnitFileState", &(unit,)).await else {
+            continue;
+        };
+        let mut runtime_state = String::new();
+        if let Ok(path) = manager
+            .call::<_, _, zbus::zvariant::OwnedObjectPath>("GetUnit", &(unit,))
+            .await
+        {
+            if let Ok(proxy) = zbus::Proxy::new(
+                connection,
+                "org.freedesktop.systemd1",
+                path,
+                "org.freedesktop.systemd1.Unit",
+            )
+            .await
+            {
+                runtime_state = proxy.get_property::<String>("ActiveState").await.unwrap_or_default();
+            }
+        }
+
+        if is_contender(&file_state, &runtime_state) {
+            return Some(unit);
+        }
+    }
+
+    None
+}
+
 /// Claims PPD's names if they are free. Returns whether the modern identity
 /// (the one current shells use) is now served by vectis.
 pub async fn register(service: Arc<DaemonService>, connection: &Connection) -> bool {
@@ -28,6 +89,15 @@ pub async fn register(service: Arc<DaemonService>, connection: &Connection) -> b
         tracing::info!("ppd-compat: disabled by config");
         return false;
     }
+
+    if let Some(unit) = contender(connection).await {
+        tracing::info!("ppd-compat: {unit} is the bus contender, delegating instead");
+        return false;
+    }
+
+    // ponytail: the contender check runs once, at startup. Whoever claims the
+    // name keeps it, so a PPD unit started later by hand fails on the bus name
+    // until vectisd restarts. Add a runtime handoff if that bites.
 
     if let Err(e) = connection
         .object_server()
@@ -221,6 +291,20 @@ ppd_interface!(PpdLegacy, "net.hadess.PowerProfiles");
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn contender_rules() {
+        // Serving now, or enabled and due to start later in boot: defer.
+        assert!(is_contender("enabled", "active"));
+        assert!(is_contender("enabled", "activating"));
+        assert!(is_contender("enabled", "inactive"));
+        // Started without being enabled (D-Bus activation): still serving.
+        assert!(is_contender("disabled", "active"));
+        // Gave up, or deliberately turned off: the bus is ours.
+        assert!(!is_contender("enabled", "failed"));
+        assert!(!is_contender("disabled", "inactive"));
+        assert!(!is_contender("masked", "inactive"));
+    }
 
     fn profile_name(entry: &HashMap<String, OwnedValue>) -> String {
         String::try_from(entry.get("Profile").expect("Profile key").clone()).expect("string value")
